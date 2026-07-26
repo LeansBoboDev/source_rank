@@ -14,6 +14,7 @@ float  gv_PlayersScores[MAXPLAYERS];
 int    gv_PlayerSpecialInfectedKilled[MAXPLAYERS];
 char   gv_PlayerRankNameCache[MAXPLAYERS][128];
 int    gv_PlayerTokens[MAXPLAYERS];
+bool   gv_ShowRankEarning[MAXPLAYERS];
 
 // Configurations
 float  gv_PlayerMaxScore                           = 10.0;
@@ -30,8 +31,8 @@ float  gv_PlayerScoreStartSurvival                 = -3.0;
 float  gv_PlayerScoreEarnSurvivalPerSecond         = 0.01;
 float  gv_PlayerScoreInfectedStartSurvival         = 3.0;
 float  gv_PlayerScoreInfectedLoseSurvivalPerSecond = 0.02;
-float  gv_PlayerScoreScavengeGascanSurvivorEarn     = 0.3;
-float  gv_PlayerScoreScavengeGascanInfectedLose     = 0.4;
+float  gv_PlayerScoreScavengeGascanSurvivorEarn    = 0.3;
+float  gv_PlayerScoreScavengeGascanInfectedLose    = 0.4;
 float  gv_PlayerScoreObjectiveComplete             = 1.0;
 float  gv_PlayerScoreWaveSurvived                  = 1.0;
 float  gv_PlayerScorePerScore                      = 0.1;
@@ -46,18 +47,18 @@ int    gv_TimeStampSurvived;
 Handle gv_TimeStampSurvivedTimer = INVALID_HANDLE;
 int    gv_LastPlayerScore[MAXPLAYERS];
 int    gv_IsDeadPlayer[MAXPLAYERS];
-int    gv_ObjectivesCompleted = 0;
-bool   gv_ObjectiveInCooldown = false;
-float  gv_ObjectiveCooldown   = 5.0;
-int    gv_ServerWave          = 0;
+int    gv_ObjectivesCompleted  = 0;
+bool   gv_ObjectiveInCooldown  = false;
+float  gv_ObjectiveCooldown    = 5.0;
+int    gv_ServerWave           = 0;
 
-bool   gv_ShouldDebug              = false;
-bool   gv_ShouldDisplayMenu        = true;
-bool   gv_ShouldDisplayRank        = true;
-bool   gv_ShowScoreMVP             = true;
-bool   gv_ShowInfectedKillsMVP     = false;
+bool   gv_ShouldDebug          = false;
+bool   gv_ShouldDisplayMenu    = true;
+bool   gv_ShouldDisplayRank    = true;
+bool   gv_ShowScoreMVP         = true;
+bool   gv_ShowInfectedKillsMVP = false;
 
-char   gv_DatabaseConfig[128] = "sourcerank";
+char   gv_DatabaseConfig[128]  = "sourcerank";
 
 #define MVP_COUNT 3
 
@@ -132,7 +133,6 @@ void   ReadVariables()
 
     gv_PlayerScoreInfectedLoseSurvivalPerSecond = gc_PlayerScoreInfectedLoseSurvivalPerSecond.FloatValue;
     PrintToServer("[SourceRank] Player score infected lose survival per second: %f", gv_PlayerScoreInfectedLoseSurvivalPerSecond);
-
 
     gv_PlayerScoreScavengeGascanSurvivorEarn = gc_PlayerScoreScavengeGascanSurvivorEarn.FloatValue;
     PrintToServer("[SourceRank] Player score scavenge gascan survivor earn: %f", gv_PlayerScoreScavengeGascanSurvivorEarn);
@@ -572,7 +572,6 @@ public void OnPluginStart()
         false,
         0.0);
 
-
     gc_PlayerScoreScavengeGascanSurvivorEarn = CreateConVar(
         "rankPlayerScoreScavengeGascanSurvivorEarn",
         "0.3",
@@ -688,6 +687,7 @@ public void OnPluginStart()
 
     RegConsoleCmd("rankreload", CommandReload, "Reload Rank");
     RegConsoleCmd("rank", CommandViewRank, "View your rank");
+    RegConsoleCmd("showRankEarning", CommandToggleRankEarning, "Toggle showing rank earning in chat");
 
     PrintToServer("[SourceRank] Initialized");
 }
@@ -875,6 +875,9 @@ public void MarkerReached(Event event, const char[] name, bool dontBroadcast)
 
         gv_PlayersScores[client] += gv_PlayerScoreEarnOnMarker;
 
+        if (gv_ShowRankEarning[client])
+            PrintToChat(client, "[SourceRank] +%.2f MMR (Marker Reached)", gv_PlayerScoreEarnOnMarker);
+
         if (gv_ShouldDebug)
             PrintToServer("[SourceRank] [MarkerReached] %d Earned: %f for marker reach", client, gv_PlayerScoreEarnOnMarker);
     }
@@ -963,16 +966,34 @@ public void RoundEndSurvivalVersus(Event event, const char[] name, bool dontBroa
 
         if (team == 2)
         {
-            gv_PlayersScores[client] += GetRankEarnByTimeStampSurvival();
+            float survivalEarn = GetRankEarnByTimeStampSurvival();
+            gv_PlayersScores[client] += survivalEarn;
+
+            if (gv_ShowRankEarning[client])
+            {
+                if (survivalEarn >= 0.0)
+                    PrintToChat(client, "[SourceRank] +%.2f MMR (Survival Time: %ds)", survivalEarn, gv_TimeStampSurvived);
+                else
+                    PrintToChat(client, "[SourceRank] %.2f MMR (Survival Time: %ds)", survivalEarn, gv_TimeStampSurvived);
+            }
 
             if (gv_ShouldDebug)
-                PrintToServer("[SourceRank] [RoundEndSurvivalVersus] %d SUpdated rank: %f", client, GetRankEarnByTimeStampSurvival());
+                PrintToServer("[SourceRank] [RoundEndSurvivalVersus] %d SUpdated rank: %f", client, survivalEarn);
         }
         else if (team == 3) {
-            gv_PlayersScores[client] += GetRankEarnByTimeStampInfected();
+            float infectedEarn = GetRankEarnByTimeStampInfected();
+            gv_PlayersScores[client] += infectedEarn;
+
+            if (gv_ShowRankEarning[client])
+            {
+                if (infectedEarn >= 0.0)
+                    PrintToChat(client, "[SourceRank] +%.2f MMR (Survival Time: %ds)", infectedEarn, gv_TimeStampSurvived);
+                else
+                    PrintToChat(client, "[SourceRank] %.2f MMR (Survival Time: %ds)", infectedEarn, gv_TimeStampSurvived);
+            }
 
             if (gv_ShouldDebug)
-                PrintToServer("[SourceRank] [RoundEndSurvivalVersus] %d IUpdated rank: %f", client, GetRankEarnByTimeStampInfected());
+                PrintToServer("[SourceRank] [RoundEndSurvivalVersus] %d IUpdated rank: %f", client, infectedEarn);
         }
         PrintToServer("[SourceRank] Player: %d, team: %d, score: %f", client, team, gv_PlayersScores[client]);
     }
@@ -1064,6 +1085,9 @@ public void OnGascanPoured(Event event, const char[] name, bool dontBroadcast)
     {
         gv_PlayersScores[client] += gv_PlayerScoreScavengeGascanSurvivorEarn;
 
+        if (gv_ShowRankEarning[client])
+            PrintToChat(client, "[SourceRank] +%.2f MMR (Gascan Poured)", gv_PlayerScoreScavengeGascanSurvivorEarn);
+
         if (gv_ShouldDebug)
             PrintToServer("[SourceRank] [OnGascanPoured] Survivor %d poured a can, earned %f MMR, total: %f", client, gv_PlayerScoreScavengeGascanSurvivorEarn, gv_PlayersScores[client]);
     }
@@ -1080,6 +1104,9 @@ public void OnGascanPoured(Event event, const char[] name, bool dontBroadcast)
         if (GetClientTeam(infected) != 3) continue;
 
         gv_PlayersScores[infected] -= gv_PlayerScoreScavengeGascanInfectedLose;
+
+        if (gv_ShowRankEarning[infected])
+            PrintToChat(infected, "[SourceRank] -%.2f MMR (Gascan Poured)", gv_PlayerScoreScavengeGascanInfectedLose);
 
         if (gv_ShouldDebug)
             PrintToServer("[SourceRank] [OnGascanPoured] Infected %d lost %f MMR, total: %f", infected, gv_PlayerScoreScavengeGascanInfectedLose, gv_PlayersScores[infected]);
@@ -1229,6 +1256,9 @@ public void OnPlayerHurt(Event event, const char[] name, bool dontBroadcast)
 
         gv_PlayersScores[infectedClient] += earnedMMR;
 
+        if (gv_ShowRankEarning[infectedClient])
+            PrintToChat(infectedClient, "[SourceRank] +%.2f MMR (Damage: %d)", earnedMMR, totalDamage);
+
         if (gv_ShouldDebug)
             PrintToServer("[SourceRank] [OnPlayerHurt] %d infected deal: %d damage to %d survivor, earned mmr: %f, total mmr: %f", infectedClient, totalDamage, survivorClient, earnedMMR, gv_PlayersScores[infectedClient]);
     }
@@ -1239,13 +1269,16 @@ public void OnPlayerIncapacitated(Event event, const char[] name, bool dontBroad
     int survivorIncapacitated = GetClientOfUserId(event.GetInt("userid"));
     int infectedClient        = GetClientOfUserId(event.GetInt("attacker"));
 
-    // Player reducer MMR
+    // Survivor loses MMR (real players only, not bots)
     if (IsValidClient(survivorIncapacitated) && GetClientTeam(survivorIncapacitated) == 2)
     {
-        // Check if is valid client and the attacker is not a friendly fire
         if (!IsValidClient(infectedClient) || GetClientTeam(infectedClient) != 2)
         {
             gv_PlayersScores[survivorIncapacitated] -= gv_PlayerScoreLosePerIncapacitated;
+
+            if (gv_ShowRankEarning[survivorIncapacitated])
+                PrintToChat(survivorIncapacitated, "[SourceRank] -%.2f MMR (Incapacitated)", gv_PlayerScoreLosePerIncapacitated);
+
             if (gv_ShouldDebug)
                 PrintToServer("[SourceRank] [OnPlayerIncapacitated] %d was incapacitated and lose: %f MMR, total: %f", survivorIncapacitated, gv_PlayerScoreLosePerIncapacitated, gv_PlayersScores[survivorIncapacitated]);
         }
@@ -1254,12 +1287,8 @@ public void OnPlayerIncapacitated(Event event, const char[] name, bool dontBroad
                 PrintToServer("[SourceRank] [OnPlayerIncapacitated] Ignored mmr change: Invalid client or friendly fire");
         }
     }
-    else {
-        if (gv_ShouldDebug)
-            PrintToServer("[SourceRank] [OnPlayerIncapacitated] Ignored mmr change: Not a survivor");
-        return;
-    }
 
+    // Infected earns MMR regardless of whether the survivor is a bot or real player
     if (!IsValidClient(infectedClient))
     {
         if (gv_ShouldDebug)
@@ -1269,10 +1298,15 @@ public void OnPlayerIncapacitated(Event event, const char[] name, bool dontBroad
 
     if (GetClientTeam(infectedClient) == 3)
     {
-        bool isTank = GetEntProp(infectedClient, Prop_Send, "m_zombieClass") == 8;
+        bool  isTank      = GetEntProp(infectedClient, Prop_Send, "m_zombieClass") == 8;
         float earnedIncap = isTank ? gv_PlayerScoreEarnPerTankIncapacitated : gv_PlayerScoreEarnPerIncapacitated;
         gv_PlayersScores[infectedClient] += earnedIncap;
-        PrintToServer("[SourceRank] [OnPlayerIncapacitated] %d incapacitated someone and earn: %f MMR, total: %f", infectedClient, earnedIncap, gv_PlayersScores[infectedClient]);
+
+        if (gv_ShowRankEarning[infectedClient])
+            PrintToChat(infectedClient, "[SourceRank] +%.2f MMR (Incapacitated Survivor)", earnedIncap);
+
+        if (gv_ShouldDebug)
+            PrintToServer("[SourceRank] [OnPlayerIncapacitated] %d incapacitated someone and earn: %f MMR, total: %f", infectedClient, earnedIncap, gv_PlayersScores[infectedClient]);
     }
     else {
         if (gv_ShouldDebug)
@@ -1293,6 +1327,10 @@ public void OnPlayerRevive(Event event, const char[] name, bool dontBroadcast)
     if (GetClientTeam(client) == 2)
     {
         gv_PlayersScores[client] += gv_PlayerScoreEarnPerRevive;
+
+        if (gv_ShowRankEarning[client])
+            PrintToChat(client, "[SourceRank] +%.2f MMR (Revive)", gv_PlayerScoreEarnPerRevive);
+
         if (gv_ShouldDebug)
             PrintToServer("[SourceRank] [OnPlayerRevive] %d revived and earned: %f MMR, total: %f", client, gv_PlayerScoreEarnPerRevive, gv_PlayersScores[client]);
     }
@@ -1342,6 +1380,9 @@ public void OnSpecialKill(Event event, const char[] name, bool dontBroadcast)
             PrintToServer("[SourceRank] [OnSpecialKill] %d received %f for killing: %s", clientAttacker, gv_PlayerScoreEarnPerSpecialKill, victimname);
         gv_PlayersScores[clientAttacker] += gv_PlayerScoreEarnPerSpecialKill;
         gv_PlayerSpecialInfectedKilled[clientAttacker] += 1;
+
+        if (gv_ShowRankEarning[clientAttacker])
+            PrintToChat(clientAttacker, "[SourceRank] +%.2f MMR (Special Kill: %s)", gv_PlayerScoreEarnPerSpecialKill, victimname);
     }
     else
     {
@@ -1416,8 +1457,9 @@ public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 
 public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
 {
-    gv_IsDeadPlayer[client] = true;
-    gv_PlayerTokens[client] = 0;
+    gv_IsDeadPlayer[client]    = true;
+    gv_PlayerTokens[client]    = 0;
+    gv_ShowRankEarning[client] = false;
 
     return true;
 }
@@ -1702,6 +1744,28 @@ public Action CommandViewRank(int client, int args)
 
     return Plugin_Handled;
 }
+
+public Action CommandToggleRankEarning(int client, int args)
+{
+    if (!IsValidClient(client))
+        return Plugin_Stop;
+
+    gv_ShowRankEarning[client] = !gv_ShowRankEarning[client];
+    RequestFrame(FrameToggleRankEarning, client);
+    return Plugin_Handled;
+}
+
+public void FrameToggleRankEarning(any data)
+{
+    int client = data;
+    if (!IsValidClient(client))
+        return;
+
+    if (gv_ShowRankEarning[client])
+        PrintToChat(client, "[SourceRank] Rank earning display: ON");
+    else
+        PrintToChat(client, "[SourceRank] Rank earning display: OFF");
+}
 //
 // #endregion Events
 //
@@ -1943,9 +2007,11 @@ stock void UploadMMR_Callback(
     }
 
     PrintToServer("[SourceRank] Updated %d mmr to: %d", client, mmr);
-    PrintToChat(client, "Received: %d MMR", mmr);
 
     if (!IsValidClient(client)) return;
+
+    if (gv_ShowRankEarning[client])
+        PrintToChat(client, "[SourceRank] Received: %d MMR", mmr);
 
     int steamid = GetSteamAccountID(client);
     if (steamid == 0) return;
@@ -1956,7 +2022,41 @@ stock void UploadMMR_Callback(
     char game[64], query[256];
     GetGameFolderName(game, sizeof(game));
     Format(query, sizeof(query), "SELECT rank FROM `%s` WHERE uniqueid = %d", game, steamid);
-    SQL_TQuery(db2, DisplayRankLogin_Callback, query, client, DBPrio_High);
+    SQL_TQuery(db2, ShowRankBalance_Callback, query, client, DBPrio_High);
+}
+
+stock void ShowRankBalance_Callback(
+    Database    db,
+    DBResultSet results,
+    const char[] error,
+    any data)
+{
+    int client = data;
+
+    if (error[0])
+    {
+        PrintToServer("[SourceRank] ShowRankBalance_Callback SQL Error: %s", error);
+        return;
+    }
+
+    if (!IsValidClient(client)) return;
+
+    if (results != null && SQL_HasResultSet(results))
+    {
+        while (SQL_FetchRow(results))
+        {
+            char rank[128];
+            SQL_FetchString(results, 0, rank, sizeof(rank));
+
+            char rankName[128];
+            GetRankNameFromRank(StringToInt(rank), rankName, sizeof(rankName));
+
+            gv_PlayerRankNameCache[client] = rankName;
+
+            if (gv_ShowRankEarning[client])
+                PrintToChat(client, "[SourceRank] Balance: %s MMR | Rank: %s", rank, rankName);
+        }
+    }
 }
 
 stock void RegisterPlayer(const int client)
