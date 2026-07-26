@@ -45,6 +45,12 @@ char   gv_Gamemode[64];
 
 int    gv_TimeStampSurvived;
 Handle gv_TimeStampSurvivedTimer = INVALID_HANDLE;
+
+int    gv_Mutation15Round             = 0;
+int    gv_Mutation15Team1SurvivalTime = 0;
+int    gv_Mutation15Team2SurvivalTime = 0;
+int    gv_Mutation15Team1Wins         = 0;
+int    gv_Mutation15Team2Wins         = 0;
 int    gv_LastPlayerScore[MAXPLAYERS];
 int    gv_IsDeadPlayer[MAXPLAYERS];
 int    gv_ObjectivesCompleted  = 0;
@@ -302,7 +308,6 @@ void ReadConfigs()
         SafeUnhook("gascan_pour_completed", OnGascanPoured, EventHookMode_Post, gvf_Hooked_ScavengeGascanPoured);
         SafeUnhook("map_transition", RoundEndCoop, EventHookMode_Post, gvf_Hooked_MapTransition);
         SafeUnhook("mission_lost", RoundEndLoseCoop, EventHookMode_Post, gvf_Hooked_MissionLost);
-
         // Base hooks
         SafeHook("player_team", OnPlayerChangeTeam, EventHookMode_Post, gvf_Hooked_PlayerTeam);
         SafeHook("player_incapacitated", OnPlayerIncapacitated, EventHookMode_Post, gvf_Hooked_PlayerIncapacitated);
@@ -695,6 +700,11 @@ public void OnPluginStart()
 public void OnMapStart()
 {
     ReadConfigs();
+    gv_Mutation15Round             = 0;
+    gv_Mutation15Team1SurvivalTime = 0;
+    gv_Mutation15Team2SurvivalTime = 0;
+    gv_Mutation15Team1Wins         = 0;
+    gv_Mutation15Team2Wins         = 0;
 }
 
 //
@@ -850,6 +860,9 @@ public void RoundStartSurvivalVersus(Event event, const char[] name, bool dontBr
         gv_TimeStampSurvivedTimer = INVALID_HANDLE;
     }
     gv_TimeStampSurvivedTimer = CreateTimer(1.0, OnTimestampPassed, 0, TIMER_REPEAT);
+
+    if (StrEqual(gv_Gamemode, "mutation15"))
+        gv_Mutation15Round++;
 }
 
 public Action OnTimestampPassed(Handle timer, any data)
@@ -996,6 +1009,41 @@ public void RoundEndSurvivalVersus(Event event, const char[] name, bool dontBroa
                 PrintToServer("[SourceRank] [RoundEndSurvivalVersus] %d IUpdated rank: %f", client, infectedEarn);
         }
         PrintToServer("[SourceRank] Player: %d, team: %d, score: %f", client, team, gv_PlayersScores[client]);
+    }
+
+    if (StrEqual(gv_Gamemode, "mutation15"))
+    {
+        if (gv_Mutation15Round % 2 == 1)
+        {
+            gv_Mutation15Team1SurvivalTime = gv_TimeStampSurvived;
+            PrintToChatAll("Team 1 survived: %ds", gv_Mutation15Team1SurvivalTime);
+        }
+        else
+        {
+            gv_Mutation15Team2SurvivalTime = gv_TimeStampSurvived;
+
+            PrintToChatAll("=== Versus Survival - Result ===");
+            PrintToChatAll("Team 1: %ds | Team 2: %ds", gv_Mutation15Team1SurvivalTime, gv_Mutation15Team2SurvivalTime);
+
+            if (gv_Mutation15Team1SurvivalTime > gv_Mutation15Team2SurvivalTime)
+            {
+                gv_Mutation15Team1Wins++;
+                PrintToChatAll("Winner: Team 1!");
+            }
+            else if (gv_Mutation15Team2SurvivalTime > gv_Mutation15Team1SurvivalTime)
+            {
+                gv_Mutation15Team2Wins++;
+                PrintToChatAll("Winner: Team 2!");
+            }
+            else
+            {
+                PrintToChatAll("It's a tie!");
+            }
+
+            gv_Mutation15Team1SurvivalTime = 0;
+            gv_Mutation15Team2SurvivalTime = 0;
+            gv_Mutation15Round             = 0;
+        }
     }
 
     ShowMVPsAndUploadMMR();
@@ -1784,17 +1832,17 @@ stock void ShowMVPsAndUploadMMR()
         int client = onlinePlayers[i];
         if (client == 0) break;
 
-        if (gv_PlayersScores[client] > gv_PlayersScores[survivorsMVP[0]])
+        if (!IsValidClient(survivorsMVP[0]) || gv_PlayersScores[client] > gv_PlayersScores[survivorsMVP[0]])
         {
             survivorsMVP[2] = survivorsMVP[1];
             survivorsMVP[1] = survivorsMVP[0];
             survivorsMVP[0] = client;
         }
-        else if (gv_PlayersScores[client] > gv_PlayersScores[survivorsMVP[1]]) {
+        else if (!IsValidClient(survivorsMVP[1]) || gv_PlayersScores[client] > gv_PlayersScores[survivorsMVP[1]]) {
             survivorsMVP[2] = survivorsMVP[1];
             survivorsMVP[1] = client;
         }
-        else if (gv_PlayersScores[client] > gv_PlayersScores[survivorsMVP[2]]) {
+        else if (!IsValidClient(survivorsMVP[2]) || gv_PlayersScores[client] > gv_PlayersScores[survivorsMVP[2]]) {
             survivorsMVP[2] = client;
         }
 
